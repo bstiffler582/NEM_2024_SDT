@@ -1,13 +1,20 @@
 ## Automated Build Pipeline Lab
 
 ### Contents
-1. [Jenkins Installation](#jenkins_install)
-2. [Jenkins Initialization](#jenkins_init)
-3. [Create an Agent](#create_agent)
+1. [Introduction](#introduction)
+2. [Jenkins Installation](#jenkins_install)
+3. [Jenkins Initialization](#jenkins_init)
+4. [Create an Agent](#create_agent)
+
+<a id="introduction"></a>
+
+### 1. Introduction
+
+In the industrial automation industry, TwinCAT is uniquely suited for adopting modern software tooling and practices. Requests from customers looking to implement *continuous integration*, *continuous deployment* and *automated testing* with their PLC programs are becoming more and more frequent. The intent of this lab is to illustrate the overall landscape of CI/CD with TwinCAT, as well as to provide a hands-on demonstration of at least one path to realize these workflows with TwinCAT.
 
 <a id="jenkins_install"></a>
 
-### 1. Jenkins Installation
+### 2. Jenkins Installation
 
 1. [Download and Install JDK 21](https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.exe_)
 2. [Download and Install Jenkins LTS](https://www.jenkins.io/download/thank-you-downloading-windows-installer-stable/)
@@ -17,7 +24,7 @@
 
 <a id="jenkins_init"></a>
 
-### 2. Jenkins Initialization
+### 3. Jenkins Initialization
 
 Jenkins typically runs as a remote server to act as the delegating service for a development team's build, test and deployment tasks. For this lab, we will keep things as simple as possible and run the Jenkins service right on our local machine.
 
@@ -30,7 +37,7 @@ Jenkins typically runs as a remote server to act as the delegating service for a
 
 <a id="create_agent"></a>
 
-### 3. Create an Agent
+### 4. Create an Agent
 
 The agent will be responsible for executing our build and test processes. With common software stacks, build agents are often small, transient containers or virtual machines that are quickly deployed as needed and then cleaned up. Since we are building for TwinCAT, we need an agent that has both the TwinCAT realtime and XAE (or Visual Studio).
 
@@ -41,16 +48,10 @@ The agent will be responsible for executing our build and test processes. With c
 3. Open agent "Status" page and copy "Run agent from command line (Windows)" command. Something like:
 ```
 curl.exe -sO http://localhost:8080/jnlpJars/agent.jar
-java -jar agent.jar -url http://localhost:8080/ -secret a94f43e1e787477c9d848c464dad5d6db7ff53c37e14be02b42401e264db7d17 -name TcAgent -workDir "C:\jenkinsWork"
+java -jar agent.jar -url http://localhost:8080/ -secret a94f43e1e787477c9d84... -name TcAgent -workDir "C:\jenkinsWork"
 ```
 4. Open PowerShell as administrator and run the command
 
 Our local machine is now configured as an agent, and is listening for jobs from Jenkins.
 
 ---
-
-<a id="introduction"></a>
-
-### 1. Introduction
-
-MQTT tooling in TwinCAT is particularly simple and comprehensive. In this lab, we will demonstrate basic usage of the MQTT client libraries to publish and subscribe to a web-hosted broker. You will also gain exposure to JSON handling and the use of the `ANY` type for writing generic, reusable functions.
