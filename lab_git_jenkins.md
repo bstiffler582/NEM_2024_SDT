@@ -72,7 +72,9 @@ java -jar agent.jar -url http://localhost:8080/ -secret a94f43e1e787477c9d84... 
 ```
 4. Open PowerShell as administrator and run the command
 
-Our local machine is now configured as an agent, and is listening for jobs from Jenkins. Keep this shell window open for the duration of the lab. Don't worry if you accidentally close it - the Jenkins server will detect that the Agent is no longer running, and give you the script again to re-run it.
+We've now manually configured a custom build agent which is running locally and listening for jobs from the Jenkins server. Again, for this lab we can just use the built-in agent. No need to keep this one running - it was just an exercise.
+
+> Imagine a large development team that pumps out several builds of different projects or micro-services daily. They likely need to be able to configure multiple *remote* agents, all with varying environments; different tech stacks, dependencies, build configurations, etc. Think about what the pipelines for the Verl development team might look like...
 
 <a id="repos"></a>
 
