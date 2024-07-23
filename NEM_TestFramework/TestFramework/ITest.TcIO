@@ -1,0 +1,31 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Itf Name="ITest" Id="{963b8cc6-6d83-49e5-8149-10d4593cfc42}">
+    <Declaration><![CDATA[INTERFACE ITest
+]]></Declaration>
+    <Property Name="ClassName" Id="{7691a77c-2ef2-4308-ad67-ae8bb0b6a879}">
+      <Declaration><![CDATA[PROPERTY ClassName : STRING]]></Declaration>
+      <Get Name="Get" Id="{7665b625-a1d1-4539-aa04-5e8d4abf66e2}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="Execute" Id="{35eb429e-0789-4eb4-9e22-52d155511742}">
+      <Declaration><![CDATA[METHOD Execute : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+    </Method>
+    <Property Name="Name" Id="{191e5055-0191-4111-ab80-bd12c3f21e57}">
+      <Declaration><![CDATA[PROPERTY Name : STRING]]></Declaration>
+      <Get Name="Get" Id="{60549848-d451-49d2-852e-5c325864e980}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="Result" Id="{26fb7027-9d71-460d-8f00-e3ec48b04996}">
+      <Declaration><![CDATA[PROPERTY Result : TestResults]]></Declaration>
+      <Get Name="Get" Id="{87ab4504-da71-4061-9a33-d42ff3829282}">
+        <Declaration><![CDATA[]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

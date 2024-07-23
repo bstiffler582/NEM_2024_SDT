@@ -1,0 +1,104 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="FB_SimpleTest" Id="{a76d9921-ad37-4ebf-aed3-d89b8cd7a1ee}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_SimpleTest IMPLEMENTS ITest
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	stResult		: TestResults;
+	sName			: STRING;
+	sClassName		: STRING := __POUNAME();
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="AssertEquals" Id="{585f4c2a-8ee9-4688-8bda-614a35dedf4a}">
+      <Declaration><![CDATA[METHOD PROTECTED AssertEquals
+VAR_INPUT
+	expected		: ANY;
+	result			: ANY;
+	failmsg			: STRING(255);
+END_VAR
+VAR
+	sExp, sRes		: STRING;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF (expected.diSize <> result.diSize) THEN
+	stResult.Message := 'Test error: expected value type mismatch';
+	stResult.Passed := FALSE;
+	RETURN;
+END_IF
+
+IF (Expected.pValue^ <> Result.pValue^) THEN
+	sExp := CONCAT(' Expected: ', TO_STRING(expected.pValue^));
+	sRes := CONCAT(' Result: ', TO_STRING(result.pValue^));
+	stResult.Message := CONCAT(CONCAT(failmsg, sExp), sRes);
+	stResult.Passed := FALSE;
+ELSE
+	stResult.Passed := TRUE;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ClassName" Id="{911d440e-ce97-493d-abf6-a059f8ab03fd}">
+      <Declaration><![CDATA[PROPERTY ClassName : STRING]]></Declaration>
+      <Get Name="Get" Id="{faf3cdf4-1d51-4306-a52a-f97533db893a}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ClassName := sClassName;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Execute" Id="{d3694038-a5af-4a33-9a56-6eccc4378ffd}">
+      <Declaration><![CDATA[METHOD Execute : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="FB_init" Id="{51e04b6e-3325-40a5-a8fb-82f6ed372341}">
+      <Declaration><![CDATA[//FB_Init is always available implicitly and it is used primarily for initialization.
+//The return value is not evaluated. For a specific influence, you can also declare the
+//methods explicitly and provide additional code there with the standard initialization
+//code. You can evaluate the return value.
+METHOD FB_Init: BOOL
+VAR_INPUT
+    bInitRetains: BOOL; // TRUE: the retain variables are initialized (reset warm / reset cold)
+    bInCopyCode: BOOL;  // TRUE: the instance will be copied to the copy code afterward (online change) 
+	sTestName : STRING;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[THIS^.sName := sName;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Name" Id="{2be2eac5-7a6f-4456-b3b3-8cb86688f8a4}">
+      <Declaration><![CDATA[PROPERTY Name : STRING]]></Declaration>
+      <Get Name="Get" Id="{68516f1e-cfb6-4e16-9df6-dead141c721b}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Name := sName;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Result" Id="{3b92dccb-6945-4c38-8cd7-a1313895bf93}">
+      <Declaration><![CDATA[PROPERTY Result : TestResults]]></Declaration>
+      <Get Name="Get" Id="{64227010-83a2-4c08-b100-a928a84aa30f}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Result := stResult;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

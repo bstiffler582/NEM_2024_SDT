@@ -1,0 +1,1367 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="FB_FileIO" Id="{66eef331-3e29-4baf-b56a-a29cb0e98f7c}" SpecialFunc="None">
+    <Declaration><![CDATA[{attribute 'hide_all_locals'}
+FUNCTION_BLOCK FB_FileIO
+VAR
+	// open / close FBs
+	_fbFileOpen			: FB_FileOpen;
+	_fbFileClose		: FB_FileClose;
+	
+	// reader FBs
+	_fbFileRead 		: FB_FileRead;
+	_fbLineRead			: FB_FileGets;
+	
+	// seek/tell
+	_fbSeek				: FB_FileSeek;
+	_fbTell				: FB_FileTell;
+	
+	// writer FBs
+	_fbFileWrite 		: FB_FileWrite;
+	_fbLineWrite		: FB_FilePuts;
+	_fbFileDelete		: FB_FileDelete;
+	
+	// shared locals
+	_nHandle			: UINT;
+	_nSeq				: DINT;
+	_nIdx				: DINT;
+	
+	_copyBuffer			: POINTER TO BYTE;
+	_copyRW				: BOOL;
+	
+	// property fields w/ init values
+	_nMaxReadLen		: DINT := 1048576;
+	_tReadTimeout		: TIME := T#1S;
+	
+	_nMaxWriteLen		: DINT := 1048576;
+	_tWriteTimeout		: TIME := T#1S;
+	_bTrimWriteData		: BOOL := TRUE;
+	
+	_sException			: STRING;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// cyclic calls
+THIS^.Execute();]]></ST>
+    </Implementation>
+    <Method Name="AppendLines" Id="{36f340aa-5e81-47a1-94ab-8b19912f80ca}">
+      <Declaration><![CDATA[// Appends a string array to a file. If the file does not exist, it is created.
+METHOD AppendLines : BOOL
+VAR_INPUT
+	// Path of file to write
+	Path			: STRING;
+	// Insert Newlines chars after each array element
+	InsertNewlines	: BOOL;
+END_VAR
+VAR_IN_OUT
+	// Array of strings to write
+	Contents		: ARRAY[*] OF T_MaxString;
+END_VAR
+VAR
+	_sMeth			: STRING := 'AppendLines(): ';
+	_sLine			: T_MaxString;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE _nSeq OF
+	0 : 
+		_sException := '';
+		_nHandle := 0;
+		
+		_fbFileOpen(sPathName := Path, nMode := (FOPEN_MODETEXT OR FOPEN_MODEAPPEND), bExecute := TRUE);
+		_nSeq := 1;
+		
+	1 :
+		IF NOT _fbFileOpen.bBusy THEN
+			_fbFileOpen(bExecute := FALSE);
+			IF _fbFileOpen.bError THEN
+				_sException := 'Error in FB_FileOpen; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileOpen.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nHandle := _fbFileOpen.hFile;
+				_nIdx := LOWER_BOUND(Contents, 1);
+				_nSeq := 2;
+			END_IF
+		END_IF
+		
+	2 :
+		IF (_nIdx <= UPPER_BOUND(Contents, 1)) THEN
+			IF Contents[_nIdx] <> '' THEN
+				_sLine := SEL(InsertNewlines, Contents[_nIdx], CONCAT(Contents[_nIdx], '$0A'));
+				_fbLineWrite(hFile := _nHandle, sLine := _sLine, 
+					tTimeout := _tWriteTimeout, bExecute := TRUE);
+			END_IF
+			_nSeq := 3;
+		ELSE
+			_nSeq := 4;
+		END_IF
+		
+	3 :
+		IF NOT _fbLineWrite.bBusy THEN
+			_fbLineWrite(bExecute := FALSE);
+			IF _fbLineWrite.bError THEN
+				_sException := 'Error in FB_FilePuts; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbLineWrite.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nIdx := _nIdx + 1;
+				_nSeq := 2;
+			END_IF
+		END_IF
+		
+	
+	4 : 
+		_fbFileClose(hFile := _nHandle, bExecute := TRUE);
+		_nSeq := 5;
+		
+	5 : 
+		IF NOT _fbFileClose.bBusy THEN
+			_fbFileClose(bExecute := FALSE);
+			IF _fbFileClose.bError THEN
+				_sException := 'Error in FB_FileClose; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileClose.nErrId));
+				_nHandle := 0;
+				_nSeq := 9;
+			ELSE
+				_nSeq := 0;
+				AppendLines := TRUE;
+			END_IF
+		END_IF
+		
+	9 : 
+		IF _nHandle <> 0 THEN
+			_nSeq := 4;
+		ELSE
+			_sException := CONCAT(_sMeth, _sException);
+			
+			_nSeq := 0;
+			AppendLines := TRUE;
+		END_IF
+		
+END_CASE
+
+THIS^.Execute();
+
+RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="AppendText" Id="{2ccc9883-848b-4927-8cc0-43df17a58b31}">
+      <Declaration><![CDATA[// Appends a string to a file. If the file does not exist, it is created.
+METHOD AppendText : BOOL
+VAR_INPUT
+	// Path of file to append write string
+	Path			: STRING;
+	// String to append
+	Contents		: ANY;
+END_VAR
+VAR
+	_sMeth			: STRING := 'AppendText(): ';
+	_nWriteLen		: DINT;
+	_pCharIdx		: POINTER TO BYTE;
+	_charVal		: BYTE;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF UDINT_TO_INT(Contents.TypeClass) <> 16 THEN
+	_sException := 'WriteData parameter is invalid type (STRING).';
+	AppendText := TRUE;
+END_IF
+
+CASE _nSeq OF
+	0 : 
+		_sException := '';
+		_nHandle := 0;
+		
+		_fbFileOpen(sPathName := Path, nMode := (FOPEN_MODETEXT OR FOPEN_MODEAPPEND), bExecute := TRUE);
+		_nSeq := 1;
+		
+	1 :
+		IF NOT _fbFileOpen.bBusy THEN
+			_fbFileOpen(bExecute := FALSE);
+			IF _fbFileOpen.bError THEN
+				_sException := 'Error in FB_FileOpen; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileOpen.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nHandle := _fbFileOpen.hFile;
+				_nSeq := 2;
+			END_IF
+		END_IF
+		
+	2 :
+		IF _bTrimWriteData THEN
+			_nWriteLen := THIS^.TrimLen(Contents.pValue, Contents.diSize);
+		ELSE
+			_nWriteLen := SEL((Contents.diSize > _nMaxWriteLen), Contents.diSize, _nMaxWriteLen);
+		END_IF
+		
+		_fbFileWrite(hFile := _nHandle, pWriteBuff := Contents.pValue, cbWritelen := TO_UDINT(_nWriteLen), 
+			tTimeout := _tWriteTimeout, bExecute := TRUE);
+			
+		_nSeq := 3;
+		
+	3 :
+		IF NOT _fbFileWrite.bBusy THEN
+			_fbFileWrite(bExecute := FALSE);
+			IF _fbFileWrite.bError THEN
+				_sException := 'Error in FB_FileWrite; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileWrite.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nSeq := 4;
+			END_IF
+		END_IF
+		
+	
+	4 : 
+		_fbFileClose(hFile := _nHandle, bExecute := TRUE);
+		_nSeq := 5;
+		
+	5 : 
+		IF NOT _fbFileClose.bBusy THEN
+			_fbFileClose(bExecute := FALSE);
+			IF _fbFileClose.bError THEN
+				_sException := 'Error in FB_FileClose; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileClose.nErrId));
+				_nHandle := 0;
+				_nSeq := 9;
+			ELSE
+				_nSeq := 0;
+				AppendText := TRUE;
+			END_IF
+		END_IF
+		
+	9 : 
+		IF _nHandle <> 0 THEN
+			_nSeq := 4;
+		ELSE
+			_sException := CONCAT(_sMeth, _sException);
+			
+			_nSeq := 0;
+			AppendText := TRUE;
+		END_IF
+		
+END_CASE
+
+THIS^.Execute();
+
+RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CopyFile" Id="{878f3643-5679-4be8-8d08-6c7c5c61ab2e}">
+      <Declaration><![CDATA[// Creates a copy of the source file
+METHOD CopyFile : BOOL
+VAR_INPUT
+	// Path of source file
+	Source			: STRING;
+	// Path of destination file
+	Destination		: STRING;
+END_VAR
+VAR
+	_sMeth			: STRING := 'CopyFile(): ';
+	_nReadLen		: UDINT;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[
+CASE _nSeq OF
+	0 :
+		_sException := '';
+		_copyRW := FALSE;
+		_nSeq := 1;
+		
+	1 : 
+		_nHandle := 0;
+		
+		IF NOT _copyRW THEN
+			_fbFileOpen(sPathName := Source, nMode := (FOPEN_MODEBINARY OR FOPEN_MODEREAD), bExecute := TRUE);
+		ELSE
+			_fbFileOpen(sPathName := Destination, nMode := (FOPEN_MODEBINARY OR FOPEN_MODEWRITE), bExecute := TRUE);
+		END_IF
+		
+		_nSeq := 2;
+		
+	2 :
+		IF NOT _fbFileOpen.bBusy THEN
+			_fbFileOpen(bExecute := FALSE);
+			IF _fbFileOpen.bError THEN
+				_sException := 'Error in FB_FileOpen; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileOpen.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nHandle := _fbFileOpen.hFile;
+				_nSeq := SEL(_copyRW, 3, 5);
+			END_IF
+		END_IF
+		
+	3 : 
+		_copyBuffer := __NEW(BYTE, TO_UDINT(_nMaxReadLen));
+		_fbFileRead(hFile := _nHandle, pReadBuff := _copyBuffer, 
+			cbReadLen := TO_UDINT(_nMaxReadLen), tTimeout := _tReadTimeout, bExecute := TRUE);
+			
+		_nSeq := 4;
+		
+	4 :
+		IF (NOT _fbFileRead.bBusy) OR _fbFileRead.bEOF THEN
+			_fbFileRead(bExecute := FALSE);
+			IF _fbFileRead.bError THEN
+				_sException := 'Error in FB_FileRead; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileRead.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nSeq := 7;
+			END_IF
+		END_IF
+		
+	5 : 
+		_nReadLen := _fbFileRead.cbRead;
+		
+		_fbFileWrite(hFile := _nHandle, pWriteBuff := _copyBuffer, cbWritelen := _nReadLen, 
+			tTimeout := _tWriteTimeout, bExecute := TRUE);
+			
+		_nSeq := 6;
+		
+	6 : 
+		IF NOT _fbFileWrite.bBusy THEN
+			_fbFileWrite(bExecute := FALSE);
+			__DELETE(_copyBuffer);
+			IF _fbFileWrite.bError THEN
+				_sException := 'Error in FB_FileWrite; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileWrite.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nSeq := 7;
+			END_IF
+		END_IF
+		
+		
+	7 : 
+		_fbFileClose(hFile := _nHandle, bExecute := TRUE);
+		_nSeq := 8;
+		
+	8 : 
+		IF NOT _fbFileClose.bBusy THEN
+			_fbFileClose(bExecute := FALSE);
+			IF _fbFileClose.bError THEN
+				_sException := 'Error in FB_FileClose; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileClose.nErrId));
+				_nHandle := 0;
+				_nSeq := 9;
+			ELSE
+				IF _copyRW THEN
+					_nSeq := 0;
+					CopyFile := TRUE;
+				ELSE
+					_copyRW := TRUE;
+					_nSeq := 1;
+				END_IF
+			END_IF
+		END_IF
+		
+	9 :
+		IF (_copyBuffer <> 0) THEN
+			__DELETE(_copyBuffer);
+		END_IF
+		
+		IF _nHandle <> 0 THEN
+			_nSeq := 7;
+		ELSE
+			_sException := CONCAT(_sMeth, _sException);
+			_nSeq := 0;
+			CopyFile := TRUE;
+		END_IF
+		
+END_CASE
+
+THIS^.Execute();
+
+RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="DeleteFile" Id="{0745acf6-2a86-42ea-82dc-4d0a62b3ea31}">
+      <Declaration><![CDATA[// Deletes file
+METHOD DeleteFile : BOOL
+VAR_INPUT
+	// File path
+	Path			: STRING;
+END_VAR
+VAR
+	_sMeth			: STRING := 'DeleteFile(): ';
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE _nSeq OF
+	0 : 
+		_sException := '';
+		_nHandle := 0;
+		
+		_fbFileDelete(sPathName := Path, tTimeout := _tWriteTimeout, bExecute := TRUE);
+		_nSeq := 1;
+		
+	1 : 
+		IF NOT _fbFileDelete.bBusy THEN
+			_fbFileDelete(bExecute := FALSE);
+			IF _fbFileDelete.bError THEN
+				_sException := 'Error in FB_FileDelete; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileDelete.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nSeq := 0;
+				DeleteFile := TRUE;
+			END_IF
+		END_IF
+		
+	9 : 
+		_sException := CONCAT(_sMeth, _sException);
+		
+		_nSeq := 0;
+		DeleteFile := TRUE;
+		
+END_CASE
+
+THIS^.Execute();
+
+RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Exception" Id="{7dcc328a-ffe0-4768-871c-f9d6d8df2014}">
+      <Declaration><![CDATA[// Last Operation Exception String
+PROPERTY Exception : STRING]]></Declaration>
+      <Get Name="Get" Id="{17fbb8b0-490b-4cf4-9422-31f2c019239c}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Exception := _sException;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Execute" Id="{402b97a9-4372-43e1-8b1c-328e7aeab612}">
+      <Declaration><![CDATA[METHOD PRIVATE Execute : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[/// Cyclic FB calls
+
+// file open/close
+_fbFileOpen();
+_fbFileClose();
+
+// file read
+_fbFileRead();
+_fbLineRead();
+_fbSeek();
+_fbTell();
+
+// file write
+_fbFileWrite();
+_fbLineWrite();
+
+// file delete
+_fbFileDelete();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Exists" Id="{a7b26c8e-b19a-4dc9-8c22-1d29ce9e704e}">
+      <Declaration><![CDATA[// Check if file exists [Synchronous Method]
+METHOD Exists : BOOL
+VAR_INPUT
+	// Path to file
+	Path			: STRING;
+END_VAR
+VAR
+	_sMeth			: STRING := 'Exists(): ';
+	_bDone			: BOOL := FALSE;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[
+WHILE NOT _bDone DO
+	
+	_fbFileOpen();
+	_fbFileClose();
+	
+	CASE _nSeq OF
+		0 :
+			_sException := '';
+			_fbFileOpen(sPathName := Path, nMode := (FOPEN_MODEBINARY OR FOPEN_MODEREAD), bExecute := TRUE);
+			_nSeq := 1;
+			
+		1 :
+			IF NOT _fbFileOpen.bBusy THEN
+				_fbFileOpen(bExecute := FALSE);
+				IF _fbFileOpen.bError THEN
+					IF _fbFileOpen.nErrId = 16#70C THEN
+						_nSeq := 0;
+						_bDone := TRUE;
+					ELSE
+						_sException := 'Error in FB_FileOpen; ';
+						_sException := CONCAT(_sException, TO_STRING(_fbFileOpen.nErrId));
+						_nSeq := 9;
+					END_IF
+					Exists := FALSE;
+				ELSE
+					_nHandle := _fbFileOpen.hFile;
+					_nSeq := 4;
+					Exists := TRUE;
+				END_IF
+			END_IF
+			
+		4 : 
+			_fbFileClose(hFile := _nHandle, bExecute := TRUE);
+			_nSeq := 5;
+			
+		5 : 
+			IF NOT _fbFileClose.bBusy THEN
+				_fbFileClose(bExecute := FALSE);
+				IF _fbFileClose.bError THEN
+					_sException := 'Error in FB_FileClose; ';
+					_sException := CONCAT(_sException, TO_STRING(_fbFileClose.nErrId));
+					_nHandle := 0;
+					_nSeq := 9;
+				ELSE
+					_nSeq := 0;
+					_bDone := TRUE;
+				END_IF
+			END_IF
+			
+		9 :
+			IF _nHandle <> 0 THEN
+				_nSeq := 4;
+			ELSE
+				_sException := CONCAT(_sMeth, _sException);
+				_nSeq := 0;
+				_bDone := TRUE;
+			END_IF
+			
+	END_CASE
+	
+END_WHILE
+
+RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetSize" Id="{c76ffc9b-ac92-421a-8c59-e1bd0cddcaaf}">
+      <Declaration><![CDATA[// Gets the file size in bytes
+METHOD GetSize : BOOL
+VAR_INPUT
+	// Path to file
+	Path			: STRING;
+	//	File size
+	FileSize		: REFERENCE TO DINT;
+END_VAR
+VAR
+	_sMeth			: STRING := 'GetSize(): ';
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[
+CASE _nSeq OF
+	0 :
+		_sException := '';
+		_nHandle := 0;
+		
+		_fbFileOpen(sPathName := Path, nMode := (FOPEN_MODEBINARY OR FOPEN_MODEREAD), bExecute := TRUE);
+		_nSeq := 1;
+		
+	1 :
+		IF NOT _fbFileOpen.bBusy THEN
+			_fbFileOpen(bExecute := FALSE);
+			IF _fbFileOpen.bError THEN
+				_sException := 'Error in FB_FileOpen; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileOpen.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nHandle := _fbFileOpen.hFile;
+				_nSeq := 2;
+			END_IF
+		END_IF
+		
+	2 : 
+		_fbSeek(sNetId := '', hFile := _nHandle, eOrigin := E_SeekOrigin.SEEK_END, bExecute := TRUE);
+		_nSeq := 3;
+		
+	3 :
+		IF (NOT _fbSeek.bBusy) THEN
+			_fbSeek(bExecute := FALSE);
+			IF _fbSeek.bError THEN
+				_sException := 'Error in FB_FileSeek; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbSeek.nErrId));
+				_nSeq := 9;
+			ELSE
+				_fbTell(sNetId := '', hFile := _nHandle, bExecute := TRUE);
+				_nSeq := 4;
+			END_IF
+		END_IF
+		
+	4 : 
+		IF (NOT _fbTell.bBusy) THEN
+			_fbTell(bExecute := FALSE);
+			IF _fbTell.bError THEN
+				_sException := 'Error in FB_FileTell; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbTell.nErrId));
+				_nSeq := 9;
+			ELSE
+				FileSize := _fbTell.nSeekPos;
+				_nSeq := 5;
+			END_IF
+		END_IF
+		
+		
+	5 : 
+		_fbFileClose(hFile := _nHandle, bExecute := TRUE);
+		_nSeq := 6;
+		
+	6 : 
+		IF NOT _fbFileClose.bBusy THEN
+			_fbFileClose(bExecute := FALSE);
+			IF _fbFileClose.bError THEN
+				_sException := 'Error in FB_FileClose; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileClose.nErrId));
+				_nHandle := 0;
+				_nSeq := 9;
+			ELSE
+				_nSeq := 0;
+				GetSize := TRUE;
+			END_IF
+		END_IF
+		
+	9 :
+		IF _nHandle <> 0 THEN
+			_nSeq := 4;
+		ELSE
+			_sException := CONCAT(_sMeth, _sException);
+			
+			_nSeq := 0;
+			GetSize := TRUE;
+		END_IF
+		
+END_CASE
+
+THIS^.Execute();
+
+RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="MaxReadLen" Id="{62613fe5-f79c-422e-967c-bccbfc132b62}">
+      <Declaration><![CDATA[// Maximum File Read Length (bytes) Default: 1048576 (1MB)
+PROPERTY MaxReadLen : DINT]]></Declaration>
+      <Get Name="Get" Id="{83f5e885-1e08-4dbf-a6dc-5a06915ef220}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[MaxReadLen := _nMaxReadLen;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{d8befee5-faa3-45e0-b10e-6cd3dfbb7466}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[_nMaxReadLen := MaxReadLen;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="MaxWriteLen" Id="{3e86157e-a2c0-4a38-9620-ca1eea29f938}">
+      <Declaration><![CDATA[// Maximum File Write Length (bytes) Default: 1048576 (1MB)
+PROPERTY MaxWriteLen : DINT]]></Declaration>
+      <Get Name="Get" Id="{ff435926-589c-4f89-bdbc-2d2fbf053688}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[MaxWriteLen := _nMaxWriteLen;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{ea9294f0-47b3-443f-a67d-f66f3e3b06f7}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[_nMaxWriteLen := MaxWriteLen;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="ReadAllBytes" Id="{8075c38e-6b03-42d4-8222-b6502318ab82}">
+      <Declaration><![CDATA[// Read the binary content of a file into an array of bytes
+METHOD ReadAllBytes : BOOL
+VAR_INPUT
+	// Path of File to Read
+	Path			: STRING;
+END_VAR
+VAR_IN_OUT
+	// Array of bytes to store read data
+	Contents		: ARRAY[*] OF BYTE;
+END_VAR
+VAR
+	_nReadLen		: DINT;
+	_sMeth			: STRING := 'ReadAllBytes(): ';
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[
+CASE _nSeq OF
+	0 :
+		_sException := '';
+		_nHandle := 0;
+		
+		_fbFileOpen(sPathName := Path, nMode := (FOPEN_MODEBINARY OR FOPEN_MODEREAD), bExecute := TRUE);
+		_nSeq := 1;
+		
+	1 :
+		IF NOT _fbFileOpen.bBusy THEN
+			_fbFileOpen(bExecute := FALSE);
+			IF _fbFileOpen.bError THEN
+				_sException := 'Error in FB_FileOpen; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileOpen.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nHandle := _fbFileOpen.hFile;
+				_nSeq := 2;
+			END_IF
+		END_IF
+		
+	2 : 
+		_nReadLen := UPPER_BOUND(Contents, 1) - LOWER_BOUND(Contents, 1) + 1;
+		MEMSET(Contents, 0, TO_UDINT(_nReadLen));
+		_nReadLen := SEL((_nReadLen > _nMaxReadLen), _nReadLen, _nMaxReadLen);
+		
+		_fbFileRead(hFile := _nHandle, pReadBuff := Contents, 
+			cbReadLen := TO_UDINT(_nReadLen), tTimeout := _tReadTimeout, bExecute := TRUE);
+			
+		_nSeq := 3;
+		
+	3 :
+		IF (NOT _fbFileRead.bBusy) OR _fbFileRead.bEOF THEN
+			_fbFileRead(bExecute := FALSE);
+			IF _fbFileRead.bError THEN
+				_sException := 'Error in FB_FileRead; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileRead.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nSeq := 4;
+			END_IF
+		END_IF
+		
+	4 : 
+		_fbFileClose(hFile := _nHandle, bExecute := TRUE);
+		_nSeq := 5;
+		
+	5 : 
+		IF NOT _fbFileClose.bBusy THEN
+			_fbFileClose(bExecute := FALSE);
+			IF _fbFileClose.bError THEN
+				_sException := 'Error in FB_FileClose; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileClose.nErrId));
+				_nHandle := 0;
+				_nSeq := 9;
+			ELSE
+				_nSeq := 0;
+				ReadAllBytes := TRUE;
+			END_IF
+		END_IF
+		
+	9 :
+		IF _nHandle <> 0 THEN
+			_nSeq := 4;
+		ELSE
+			_sException := CONCAT(_sMeth, _sException);
+			
+			_nSeq := 0;
+			ReadAllBytes := TRUE;
+		END_IF
+		
+END_CASE
+
+THIS^.Execute();
+
+RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ReadAllLines" Id="{ed10d283-0897-4c8c-a499-11cb21647de8}">
+      <Declaration><![CDATA[// Reads all the lines in a file to an array of strings
+METHOD ReadAllLines : BOOL
+VAR_INPUT
+	// Path of File to Read
+	Path			: STRING;
+END_VAR
+VAR_IN_OUT
+	// String Array to store Read Lines
+	Contents		: ARRAY[*] OF T_MaxString;
+END_VAR
+
+VAR
+	_sMeth			: STRING := 'ReadAllLines(): ';
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[
+CASE _nSeq OF
+	0 :
+		_sException := '';
+		_nHandle := 0;
+		
+		_fbFileOpen(sPathName := Path, nMode := (FOPEN_MODETEXT OR FOPEN_MODEREAD), bExecute := TRUE);
+		_nSeq := 1;
+		
+	1 :
+		IF NOT _fbFileOpen.bBusy THEN
+			_fbFileOpen(bExecute := FALSE);
+			IF _fbFileOpen.bError THEN
+				_sException := 'Error in FB_FileOpen; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileOpen.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nHandle := _fbFileOpen.hFile;
+				_nIdx := LOWER_BOUND(Contents, 1);
+				_nSeq := 2;
+			END_IF
+		END_IF
+		
+	2 : 
+		IF (_nIdx <= UPPER_BOUND(Contents, 1)) THEN
+			_fbLineRead(hFile := _nHandle, tTimeout := _tReadTimeout, bExecute := TRUE);
+			_nSeq := 3;
+		ELSE
+			_nSeq := 4;
+		END_IF
+		
+	3 :
+		IF (NOT _fbLineRead.bBusy) OR _fbLineRead.bEOF THEN
+			_fbLineRead(bExecute := FALSE);
+			IF _fbLineRead.bError THEN
+				_sException := 'Error in FB_FileGets; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbLineRead.nErrId));
+				_nSeq := 9;
+			ELSE
+				IF _fbLineRead.bEOF THEN
+					_nSeq := 4;
+				ELSE
+					Contents[_nIdx] := _fbLineRead.sLine;
+					_nIdx := _nIdx + 1;
+					_nSeq := 2;
+				END_IF
+			END_IF
+		END_IF
+		
+		
+	4 : 
+		FOR _nIdx := _nIdx TO UPPER_BOUND(Contents, 1) DO
+			Contents[_nIdx] := '';
+		END_FOR
+		
+		_fbFileClose(hFile := _nHandle, bExecute := TRUE);
+		_nSeq := 5;
+		
+	5 : 
+		IF NOT _fbFileClose.bBusy THEN
+			_fbFileClose(bExecute := FALSE);
+			IF _fbFileClose.bError THEN
+				_sException := 'Error in FB_FileClose; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileClose.nErrId));
+				_nHandle := 0;
+				_nSeq := 9;
+			ELSE
+				_nSeq := 0;
+				ReadAllLines := TRUE;
+			END_IF
+		END_IF
+		
+	9 :
+		IF _nHandle <> 0 THEN
+			_nSeq := 4;
+		ELSE
+			_sException := CONCAT(_sMeth, _sException);
+			Contents[LOWER_BOUND(Contents, 1)] := _sException;
+			
+			_nSeq := 0;
+			ReadAllLines := TRUE;
+		END_IF
+		
+END_CASE
+
+THIS^.Execute();
+
+RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ReadAllText" Id="{966d7230-b4d3-4198-8980-2a1308a14be8}">
+      <Declaration><![CDATA[// Reads all the text from a file into a string
+METHOD ReadAllText : BOOL
+VAR_INPUT
+	// Path of File to Read
+	Path			: STRING;
+	// String to store Read Data
+	Contents		: ANY;
+END_VAR
+VAR
+	_nReadLen		: DINT;
+	_sMeth			: STRING := 'ReadAllText(): ';
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF UDINT_TO_INT(Contents.TypeClass) <> 16 THEN
+	_sException := 'ReadData parameter is invalid type (STRING).';
+	ReadAllText := TRUE;
+END_IF
+
+CASE _nSeq OF
+	0 :
+		_sException := '';
+		_nHandle := 0;
+		
+		_fbFileOpen(sPathName := Path, nMode := (FOPEN_MODETEXT OR FOPEN_MODEREAD), bExecute := TRUE);
+		_nSeq := 1;
+		
+	1 :
+		IF NOT _fbFileOpen.bBusy THEN
+			_fbFileOpen(bExecute := FALSE);
+			IF _fbFileOpen.bError THEN
+				_sException := 'Error in FB_FileOpen; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileOpen.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nHandle := _fbFileOpen.hFile;
+				_nSeq := 2;
+			END_IF
+		END_IF
+		
+	2 : 
+		MEMSET(Contents.pValue, 0, TO_UDINT(Contents.diSize));
+		_nReadLen := SEL((Contents.diSize > _nMaxReadLen), Contents.diSize, _nMaxReadLen);
+		_fbFileRead(hFile := _nHandle, pReadBuff := Contents.pValue, 
+			cbReadLen := TO_UDINT(_nReadLen), tTimeout := _tReadTimeout, bExecute := TRUE);
+			
+		_nSeq := 3;
+		
+	3 :
+		IF (NOT _fbFileRead.bBusy) OR _fbFileRead.bEOF THEN
+			_fbFileRead(bExecute := FALSE);
+			IF _fbFileRead.bError THEN
+				_sException := 'Error in FB_FileRead; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileRead.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nSeq := 4;
+			END_IF
+		END_IF
+		
+	4 : 
+		_fbFileClose(hFile := _nHandle, bExecute := TRUE);
+		_nSeq := 5;
+		
+	5 : 
+		IF NOT _fbFileClose.bBusy THEN
+			_fbFileClose(bExecute := FALSE);
+			IF _fbFileClose.bError THEN
+				_sException := 'Error in FB_FileClose; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileClose.nErrId));
+				_nHandle := 0;
+				_nSeq := 9;
+			ELSE
+				_nSeq := 0;
+				ReadAllText := TRUE;
+			END_IF
+		END_IF
+		
+	9 :
+		IF _nHandle <> 0 THEN
+			_nSeq := 4;
+		ELSE
+			_sException := CONCAT(_sMeth, _sException);
+			MEMCPY(Contents.pValue, ADR(_sException), TO_UDINT(LEN(_sException)));
+			
+			_nSeq := 0;
+			ReadAllText := TRUE;
+		END_IF
+		
+END_CASE
+
+THIS^.Execute();
+
+RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ReadTimeout" Id="{2191df40-3238-4420-af59-029b59e77ae1}">
+      <Declaration><![CDATA[// File Read Operation Timeout (Default: T#1S)
+PROPERTY ReadTimeout : TIME]]></Declaration>
+      <Get Name="Get" Id="{d1a5aa70-27a2-44ac-86dc-6a2010675a47}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ReadTimeout := _tReadTimeout;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{5c0951d3-ce46-4d14-bd80-e49dcd478f33}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[_tReadTimeout := ReadTimeout;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="TrimLen" Id="{0d71845d-818c-43c3-9a48-304292323eed}">
+      <Declaration><![CDATA[METHOD PRIVATE TrimLen : DINT
+VAR_INPUT
+	CharPtr		: POINTER TO BYTE;
+	Len			: DINT;
+END_VAR
+VAR
+	_pCharIdx		: POINTER TO BYTE;
+	_charVal		: BYTE;
+	_ret			: DINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[_pCharIdx := CharPtr;
+FOR _nIdx := 0 TO Len - 1 DO
+	_charVal := _pCharIdx^;
+	IF _charVal = 0 THEN
+		EXIT;
+	ELSE
+		_ret := _ret + 1;
+		_pCharIdx := _pCharIdx + 1;
+	END_IF
+END_FOR
+
+TrimLen := _ret;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="TrimWriteData" Id="{9e43c89c-d4c5-42c9-b869-6fbaec7ba0e9}">
+      <Declaration><![CDATA[// Trim null characters from write contents before writing/appending to file (Default: true)
+PROPERTY TrimWriteData : BOOL]]></Declaration>
+      <Get Name="Get" Id="{fdb93bfe-d989-424d-bf95-d8102153338b}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[TrimWriteData := _bTrimWriteData;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{f25389d1-ac9d-4860-972b-a167f32bb511}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[_bTrimWriteData := TrimWriteData;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="WriteAllBytes" Id="{2b99a576-29cb-445e-83eb-01ce314b41e6}">
+      <Declaration><![CDATA[// Write array of bytes to file
+METHOD WriteAllBytes : BOOL
+VAR_INPUT
+	// Path to file
+	Path			: STRING;
+END_VAR
+VAR_IN_OUT
+	// Array of bytes to write
+	Contents		: ARRAY[*] OF BYTE;
+END_VAR
+VAR
+	_sMeth			: STRING := 'WriteAllBytes(): ';
+	_nWriteLen		: DINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[
+CASE _nSeq OF
+	0 : 
+		_sException := '';
+		_nHandle := 0;
+		
+		_fbFileOpen(sPathName := Path, nMode := (FOPEN_MODEBINARY OR FOPEN_MODEWRITE), bExecute := TRUE);
+		_nSeq := 1;
+		
+	1 :
+		IF NOT _fbFileOpen.bBusy THEN
+			_fbFileOpen(bExecute := FALSE);
+			IF _fbFileOpen.bError THEN
+				_sException := 'Error in FB_FileOpen; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileOpen.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nHandle := _fbFileOpen.hFile;
+				_nSeq := 2;
+			END_IF
+		END_IF
+		
+	2 :
+		_nWriteLen := UPPER_BOUND(Contents, 1) - LOWER_BOUND(Contents, 1) + 1;
+		
+		_fbFileWrite(hFile := _nHandle, pWriteBuff := Contents, cbWritelen := TO_UDINT(_nWriteLen), 
+			tTimeout := _tWriteTimeout, bExecute := TRUE);
+			
+		_nSeq := 3;
+		
+	3 :
+		IF NOT _fbFileWrite.bBusy THEN
+			_fbFileWrite(bExecute := FALSE);
+			IF _fbFileWrite.bError THEN
+				_sException := 'Error in FB_FileWrite; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileWrite.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nSeq := 4;
+			END_IF
+		END_IF
+		
+	
+	4 : 
+		_fbFileClose(hFile := _nHandle, bExecute := TRUE);
+		_nSeq := 5;
+		
+	5 : 
+		IF NOT _fbFileClose.bBusy THEN
+			_fbFileClose(bExecute := FALSE);
+			IF _fbFileClose.bError THEN
+				_sException := 'Error in FB_FileClose; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileClose.nErrId));
+				_nHandle := 0;
+				_nSeq := 9;
+			ELSE
+				_nSeq := 0;
+				WriteAllBytes := TRUE;
+			END_IF
+		END_IF
+		
+	9 : 
+		IF _nHandle <> 0 THEN
+			_nSeq := 4;
+		ELSE
+			_sException := CONCAT(_sMeth, _sException);
+			
+			_nSeq := 0;
+			WriteAllBytes := TRUE;
+		END_IF
+		
+END_CASE
+
+THIS^.Execute();
+
+RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="WriteAllLines" Id="{964318b3-6a2e-480b-aaaf-1cb43687997a}">
+      <Declaration><![CDATA[// Writes a string array to a file. If the file does not exist, it is created. If the file does exist, its contents are overwritten.
+METHOD WriteAllLines : BOOL
+VAR_INPUT
+	// Path of file to write
+	Path			: STRING;
+	// Insert Newlines chars after each array element
+	InsertNewlines	: BOOL;
+END_VAR
+VAR_IN_OUT
+	// Array of strings to write
+	Contents		: ARRAY[*] OF T_MaxString;
+END_VAR
+VAR
+	_sMeth			: STRING := 'WriteAllLines(): ';
+	_sLine			: T_MaxString;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE _nSeq OF
+	0 : 
+		_sException := '';
+		_nHandle := 0;
+		
+		_fbFileOpen(sPathName := Path, nMode := (FOPEN_MODETEXT OR FOPEN_MODEWRITE), bExecute := TRUE);
+		_nSeq := 1;
+		
+	1 :
+		IF NOT _fbFileOpen.bBusy THEN
+			_fbFileOpen(bExecute := FALSE);
+			IF _fbFileOpen.bError THEN
+				_sException := 'Error in FB_FileOpen; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileOpen.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nHandle := _fbFileOpen.hFile;
+				_nIdx := LOWER_BOUND(Contents, 1);
+				_nSeq := 2;
+			END_IF
+		END_IF
+		
+	2 :
+		IF (_nIdx <= UPPER_BOUND(Contents, 1)) THEN
+			IF Contents[_nIdx] <> '' THEN
+				_sLine := SEL(InsertNewlines, Contents[_nIdx], CONCAT(Contents[_nIdx], '$0A'));
+				
+				_fbLineWrite(hFile := _nHandle, sLine := _sLine, 
+					tTimeout := _tWriteTimeout, bExecute := TRUE);
+			END_IF
+			_nSeq := 3;
+		ELSE
+			_nSeq := 4;
+		END_IF
+		
+	3 :
+		IF NOT _fbLineWrite.bBusy THEN
+			_fbLineWrite(bExecute := FALSE);
+			IF _fbLineWrite.bError THEN
+				_sException := 'Error in FB_FilePuts; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbLineWrite.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nIdx := _nIdx + 1;
+				_nSeq := 2;
+			END_IF
+		END_IF
+		
+	
+	4 : 
+		_fbFileClose(hFile := _nHandle, bExecute := TRUE);
+		_nSeq := 5;
+		
+	5 : 
+		IF NOT _fbFileClose.bBusy THEN
+			_fbFileClose(bExecute := FALSE);
+			IF _fbFileClose.bError THEN
+				_sException := 'Error in FB_FileClose; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileClose.nErrId));
+				_nHandle := 0;
+				_nSeq := 9;
+			ELSE
+				_nSeq := 0;
+				WriteAllLines := TRUE;
+			END_IF
+		END_IF
+		
+	9 : 
+		IF _nHandle <> 0 THEN
+			_nSeq := 4;
+		ELSE
+			_sException := CONCAT(_sMeth, _sException);
+			
+			_nSeq := 0;
+			WriteAllLines := TRUE;
+		END_IF
+		
+END_CASE
+
+THIS^.Execute();
+
+RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="WriteAllText" Id="{bbfc9ce6-165e-4d7a-989f-c4f18d7d00e1}">
+      <Declaration><![CDATA[// Writes a string to the file. If the file does not exist, it is created. If the file exists, its contents are overwritten.
+METHOD WriteAllText : BOOL
+VAR_INPUT
+	// Path of file to write
+	Path			: STRING;
+	// String data to write
+	Contents		: ANY;
+END_VAR
+VAR
+	_sMeth			: STRING := 'WriteAllText(): ';
+	_nWriteLen		: DINT;
+	_pCharIdx		: POINTER TO BYTE;
+	_charVal		: BYTE;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF UDINT_TO_INT(Contents.TypeClass) <> 16 THEN
+	_sException := 'WriteData parameter is invalid type (STRING).';
+	WriteAllText := TRUE;
+END_IF
+
+CASE _nSeq OF
+	0 : 
+		_sException := '';
+		_nHandle := 0;
+		
+		_fbFileOpen(sPathName := Path, nMode := (FOPEN_MODETEXT OR FOPEN_MODEWRITE), bExecute := TRUE);
+		_nSeq := 1;
+		
+	1 :
+		IF NOT _fbFileOpen.bBusy THEN
+			_fbFileOpen(bExecute := FALSE);
+			IF _fbFileOpen.bError THEN
+				_sException := 'Error in FB_FileOpen; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileOpen.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nHandle := _fbFileOpen.hFile;
+				_nSeq := 2;
+			END_IF
+		END_IF
+		
+	2 :
+		IF _bTrimWriteData THEN
+			_nWriteLen := THIS^.TrimLen(Contents.pValue, Contents.diSize);
+		ELSE
+			_nWriteLen := SEL((Contents.diSize > _nMaxWriteLen), Contents.diSize, _nMaxWriteLen);
+		END_IF
+		
+		_fbFileWrite(hFile := _nHandle, pWriteBuff := Contents.pValue, cbWritelen := TO_UDINT(_nWriteLen), 
+			tTimeout := _tWriteTimeout, bExecute := TRUE);
+			
+		_nSeq := 3;
+		
+	3 :
+		IF NOT _fbFileWrite.bBusy THEN
+			_fbFileWrite(bExecute := FALSE);
+			IF _fbFileWrite.bError THEN
+				_sException := 'Error in FB_FileWrite; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileWrite.nErrId));
+				_nSeq := 9;
+			ELSE
+				_nSeq := 4;
+			END_IF
+		END_IF
+		
+	
+	4 : 
+		_fbFileClose(hFile := _nHandle, bExecute := TRUE);
+		_nSeq := 5;
+		
+	5 : 
+		IF NOT _fbFileClose.bBusy THEN
+			_fbFileClose(bExecute := FALSE);
+			IF _fbFileClose.bError THEN
+				_sException := 'Error in FB_FileClose; ';
+				_sException := CONCAT(_sException, TO_STRING(_fbFileClose.nErrId));
+				_nHandle := 0;
+				_nSeq := 9;
+			ELSE
+				_nSeq := 0;
+				WriteAllText := TRUE;
+			END_IF
+		END_IF
+		
+	9 : 
+		IF _nHandle <> 0 THEN
+			_nSeq := 4;
+		ELSE
+			_sException := CONCAT(_sMeth, _sException);
+			
+			_nSeq := 0;
+			WriteAllText := TRUE;
+		END_IF
+		
+END_CASE
+
+THIS^.Execute();
+
+RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="WriteTimeout" Id="{7ededd4d-ed11-4608-bed5-c8e5e25fab6c}">
+      <Declaration><![CDATA[// File Write Operation Timeout (Default: T#1S)
+PROPERTY WriteTimeout : TIME]]></Declaration>
+      <Get Name="Get" Id="{e415be92-04a3-4540-a903-d3922990dcfa}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[WriteTimeout := _tWriteTimeout;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{dd365c0d-98bb-4d5c-83a8-d8f6b5027cec}">
+        <Declaration><![CDATA[VAR
+END_VAR
+]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[_tWriteTimeout := WriteTimeout;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+  </POU>
+</TcPlcObject>

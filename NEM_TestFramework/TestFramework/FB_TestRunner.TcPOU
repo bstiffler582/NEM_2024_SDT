@@ -1,0 +1,103 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="FB_TestRunner" Id="{c50f3a05-9e66-44ca-a2a8-3a0a73c1c93c}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_TestRunner
+VAR_INPUT
+END_VAR
+VAR_OUTPUT
+END_VAR
+VAR
+	i, nTestCount		: DINT;
+	Tests				: ARRAY[0..9] OF ITest;
+	sXmlString 			: STRING(1000);
+	nState				: DINT;
+	fbFileIo			: FB_FileIO;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="AddTest" Id="{4ebecdd5-07f7-4fd5-abfe-e7b565acc258}">
+      <Declaration><![CDATA[METHOD AddTest : BOOL
+VAR_INPUT
+	Test		: ITest;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Test <> 0 THEN
+	Tests[nTestCount] := Test;
+	nTestCount := nTestCount + 1;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Execute" Id="{7bd6a600-a8fe-49e6-9d3f-aec5f9a714ef}">
+      <Declaration><![CDATA[METHOD Execute : BOOL
+VAR_INPUT
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE nState OF
+	0:
+		IF i < nTestCount AND Tests[i] <> 0 THEN
+			IF Tests[i].Execute() THEN
+				i := i + 1;
+			END_IF
+		ELSE
+			nState := 1;
+		END_IF
+	1:
+		ToXml();
+		nState := 2;
+	2:
+		IF fbFileIo.WriteAllText('/testresults.xml', sXmlString) THEN
+			nState := 3;
+		END_IF
+	3:
+		;
+		
+END_CASE
+
+fbFileIo();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ToXml" Id="{48d750d5-379c-4a6b-856c-a7202726ada8}">
+      <Declaration><![CDATA[METHOD ToXml : BOOL
+VAR_INPUT
+END_VAR
+VAR
+	fbXml 				: FB_XmlDomParser;
+	objRoot 			: SXmlNode;
+	objTestSuite 		: SXmlNode;
+	objTestCase			: SXmlNode;
+	objFailure			: SXmlNode;
+	objFailureMsg		: SXmlNode;
+	objAttribute 		: SXmlAttribute;
+	
+	j, nLength					: DINT;
+	sCount, sTestName, sClass	: STRING;
+	result						: TestResults;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[objRoot := fbXml.GetDocumentNode();
+objTestSuite := fbXml.AppendNode(objRoot, 'testsuite');
+sCount := TO_STRING(nTestCount);
+objAttribute := fbXml.AppendAttribute(objTestSuite, 'tests', sCount);
+
+FOR j := 0 TO nTestCount - 1 DO
+	sTestName := Tests[j].Name;
+	sClass := Tests[j].ClassName;
+	result := Tests[j].Result;
+	objTestCase := fbXml.AppendNode(objTestSuite, 'testcase');
+	objAttribute := fbXml.AppendAttribute(objTestCase, 'classname', sClass);
+	objAttribute := fbXml.AppendAttribute(objTestCase, 'name', sTestName);
+	IF NOT result.Passed THEN
+		objFailure := fbXml.AppendChild(objTestCase, 'failure', result.Message, FALSE);
+		objAttribute := fbXml.AppendAttribute(objFailure, 'type', 'assert');
+	END_IF
+END_FOR
+
+nLength := fbXml.CopyDocument(sXmlString, SIZEOF(sXmlString));]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

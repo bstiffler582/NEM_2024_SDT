@@ -192,6 +192,10 @@ Automated testing is another topic of the software development conversation that
 
 >None of us are strangers to comprehensive testing of our PLC programs. However, the mindset of developing software modules *around* their ability to be tested (often called TDD - Test Driven Development) is a relatively novel strategy - especially for "device-level" programmers like us.
 
+Let's add some automated tests to our TwinCAT project. 
 
+**Unit Tests** are the easiest to describe and implement, because they test an individual *unit* of code and nothing more. Once multiple modules, components or execution paths become involved, it is no longer a *unit* test, and instead something else (most likely an *integration* test). There are a handful of community-developed unit testing frameworks available for TwinCAT that provide a wide range of features. For ease of demonstration, we will use the bare-bones "test framework" library included in this repository.
+
+Clone or download the library project and add it to your solution.
 
 > Be sure to read in the runtime configuration and set appropriately for your local target.
