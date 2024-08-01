@@ -20,7 +20,7 @@ In the industrial automation industry, TwinCAT is uniquely suited for adopting m
 
 ### 2. Jenkins Installation
 
-1. [Download and Install JDK 21](https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.exe_)
+1. [Download and Install JDK 21](https://download.oracle.com/java/21/latest/jdk-21_windows-x64_bin.exe)
 2. [Download and Install Jenkins LTS](https://www.jenkins.io/download/thank-you-downloading-windows-installer-stable/)
 3. During install:
     - Point to JDK path @ `C:\Program Files\Java\jdk-21`
