@@ -75,7 +75,7 @@ VAR_INPUT
 END_VAR
 ]]></Declaration>
       <Implementation>
-        <ST><![CDATA[THIS^.sName := sName;]]></ST>
+        <ST><![CDATA[THIS^.sName := sTestName;]]></ST>
       </Implementation>
     </Method>
     <Property Name="Name" Id="{2be2eac5-7a6f-4456-b3b3-8cb86688f8a4}">

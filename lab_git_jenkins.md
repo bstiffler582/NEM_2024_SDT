@@ -88,6 +88,8 @@ Before we create our Jenkins job, we need a way to trigger its execution. Typica
 Open a PowerShell window and make sure you can run the `git` command. If you get a "git is not recognized..." response, you likely just need to add a `PATH` environment variable. If you have not manually installed Git for Windows, it will still already be installed with Visual Studio in the following location:
 
 ```
+C:\Program Files\Beckhoff\TcXaeShell\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer\Git\cmd
+---
 C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\TeamFoundation\Team Explorer\Git\cmd
 ```
 Now we will create two directories for our local and remote repositories. I will stick mine in a `repos` folder in the root for easy access:
@@ -104,7 +106,7 @@ git init --bare remote
 git clone remote local
 ```
 
-Now we have an empty remote master branch (just like e.g. creating a new repository in Github), and we have a local clone as a working directory. Let's create a new TwinCAT project in our local folder, and add a PLC project. There is a `TwinCAT3.gitignore` file included in this repository for you to use with your new project. Via the Git Changes window, we should see Visual Studio tracking our differences between local and remote. Go ahead and commit/push the addition of the TwinCAT project.
+Now we have an empty remote master branch (just like e.g. creating a new repository in Github), and we have a local clone as a working directory. Let's create a new TwinCAT project in our local folder, and add a PLC project. There is a `TwinCAT3.gitignore` file included in this repository for you to use with your new project (you will need to change the filename to just `.gitignore`). Via the Git Changes window, we should see Visual Studio tracking our differences between local and remote. Go ahead and commit/push the addition of the TwinCAT project.
 
 > Note: If you observe the contents of the remote folder, you will not see any of your project files, but I promise, they are there. This is how data is stored in remote Git repositories. Git is optimized for textual compression and keeps its own index of what data goes where. These files are sometimes called *blobs*. If you want to test it, feel free to clear the contents of the `local` folder and then re-clone `remote`.
 
@@ -122,7 +124,7 @@ Settings:
     - Point to the file path of our remote repository `C:\repos\remote`
 2. Build Triggers
     - Select **Poll SCM**
-    - Schedule value of `H/5 * * * *` (once every 5 minutes)
+    - Schedule value of `H/5 * * * *` ("cron job" format - once every 5 minutes)
 3. Build Environment
     - Check "Delete workspace before build starts"
 4. Build Steps
@@ -271,7 +273,7 @@ bResult := ValidateRecipe(MockRecipe);
 AssertEquals(bExpected, bResult, 'Recipe validation failed');
 Execute := TRUE;
 ```
-We will not override any other properties or methods from the base type.
+We will not override any other properties or methods from the base type, so delete the rest of the properties to avoid an error.
 
 We can now use this block to test multiple recipe validation scenarios. Set this up in `MAIN` to account for just a few different cases:
 ```js
