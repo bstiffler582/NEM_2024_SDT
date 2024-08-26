@@ -59,8 +59,6 @@ Restart the Jenkins service.
 
 The agent will be responsible for executing our build and test processes. With common software stacks, build agents are often small, transient containers or virtual machines that are quickly deployed as needed and then cleaned up. Since we are building for TwinCAT, we need an agent that has both the TwinCAT realtime and XAE (or Visual Studio).
 
-> There is an implicit agent, "Built-In Node" that runs on the same machine as the Jenkins server. Since we are running everything locally, this is perfectly sufficient to use. We will go through the process of creating and running an agent manually just to demonstrate.
-
 1. "Set up an agent"
 2. Give the new node a name, e.g. `TcAgent`
     - Select "Permanent Agent"
@@ -71,9 +69,9 @@ The agent will be responsible for executing our build and test processes. With c
 curl.exe -sO http://localhost:8080/jnlpJars/agent.jar
 java -jar agent.jar -url http://localhost:8080/ -secret a94f43e1e787477c9d84... -name TcAgent -workDir "C:\jenkinsWork"
 ```
-4. Open PowerShell as administrator and run the command
+4. Open PowerShell **As Administrator** and run the command
 
-We've now manually configured a custom build agent which is running locally and listening for jobs from the Jenkins server. Again, for this lab we can just use the built-in agent. No need to keep this one running - it was just an exercise.
+We've now manually configured a custom build agent which is running locally and listening for jobs from the Jenkins server. Make sure we disable the "Built-in Node" agent that is pre-installed with the service.
 
 > Imagine a large development team that pumps out several builds of different projects or micro-services daily. They likely need to be able to configure multiple *remote* agents, all with varying environments; different tech stacks, dependencies, build configurations, etc. Think about what the pipelines for the Verl development team might look like...
 
